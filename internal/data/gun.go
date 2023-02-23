@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -85,12 +86,18 @@ func (m GunModel) Update(gun *Gun) error {
 }
 
 func (m GunModel) List(title string, genres string, filters Filters) ([]*Gun, error) {
-	query := `SELECT id, "name", model, caliber, price, availability, type
-	FROM guns WHERE (LOWER(name) = LOWER($1) OR $1 = '') and  (LOWER(type) = LOWER($2) OR $2 = '') ORDER BY id`
+	query := fmt.Sprintf(`SELECT id, "name", model, caliber, price, availability, type
+	FROM guns 
+	WHERE (to_tsvector('simple', name) @@ plainto_tsquery('simple', $1) OR $1 = '') 
+	and (LOWER(type) = LOWER($2) OR $2 = '') 
+	ORDER BY %s %s, id ASC 
+	LIMIT $3 OFFSET $4`, filters.sortColumn(), filters.sortDirection())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	rows, err := m.DB.QueryContext(ctx, query, title, genres)
+
+	args := []any{title, genres, filters.limit(), filters.offset()}
+	rows, err := m.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
